@@ -1,4 +1,4 @@
-name: Test Reusable Workflow Rollout
+name: Rollout Reusable Workflow Version
 
 on:
   workflow_dispatch:
@@ -15,74 +15,275 @@ on:
         type: string
         default: "v1.1.0"
 
+      tech_stack:
+        description: "Technology stack"
+        required: true
+        type: choice
+        options:
+          - dotnet
+          - java
+          - node
+          - python
+          - all
+
 permissions:
   contents: read
 
 jobs:
-  test-rollout:
+  rollout:
     runs-on: ubuntu-latest
 
     steps:
 
-      # Step 1 - Display versions
-      - name: Display inputs
+      - name: Display rollout information
         run: |
-          echo "Old version: ${{ inputs.old_version }}"
-          echo "New version: ${{ inputs.new_version }}"
+          echo "======================================"
+          echo "Reusable Workflow Rollout"
+          echo "======================================"
+          echo "Tech Stack  : ${{ inputs.tech_stack }}"
+          echo "Old Version : ${{ inputs.old_version }}"
+          echo "New Version : ${{ inputs.new_version }}"
+          echo "======================================"
 
-      # Step 2 - Check GitHub CLI
       - name: Check GitHub CLI
         run: |
           gh --version
 
-      # Step 3 - Check access to application repository
-      - name: Check repository access
+      - name: Rollout reusable workflow
         env:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
-        run: |
-          gh repo view arpitjere/test-app
-
-      # Step 4 - Read, check and test version replacement
-      - name: Read and check caller workflow
-        env:
-          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
-          REPO: arpitjere/test-app
-          FILE: .github/workflows/test-caller.yml
+          ORG_NAME: arpitjere
           OLD_VERSION: ${{ inputs.old_version }}
           NEW_VERSION: ${{ inputs.new_version }}
+          TECH_STACK: ${{ inputs.tech_stack }}
         run: |
 
-          echo "Reading caller workflow..."
-          echo "Repository: $REPO"
-          echo "File: $FILE"
+          # ============================================
+          # Repository and reusable workflow mapping
+          # ============================================
 
-          CONTENT=$(gh api \
-            "/repos/$REPO/contents/$FILE" \
-            --jq '.content' | base64 -d)
+          if [ "$TECH_STACK" = "dotnet" ]; then
 
-          echo ""
-          echo "========== Original Workflow =========="
-          echo "$CONTENT"
+            WORKFLOW_FILE="dotnet-build.yml"
 
-          echo ""
-          echo "========== Checking Version =========="
+            REPOS=(
+              "dotnet-app-1"
+              "dotnet-app-2"
+            )
 
-          if echo "$CONTENT" | grep -q "@$OLD_VERSION"; then
-            echo "Old version found: @$OLD_VERSION"
+          elif [ "$TECH_STACK" = "java" ]; then
+
+            WORKFLOW_FILE="java-build.yml"
+
+            REPOS=(
+              "java-app-1"
+              "java-app-2"
+            )
+
+          elif [ "$TECH_STACK" = "node" ]; then
+
+            WORKFLOW_FILE="node-build.yml"
+
+            REPOS=(
+              "node-app-1"
+              "node-app-2"
+            )
+
+          elif [ "$TECH_STACK" = "python" ]; then
+
+            WORKFLOW_FILE="python-build.yml"
+
+            REPOS=(
+              "python-app-1"
+            )
+
+          elif [ "$TECH_STACK" = "all" ]; then
+
+            echo "All technology stacks selected."
+
+            WORKFLOW_FILE="all"
+
+            REPOS=(
+              "dotnet-app-1"
+              "dotnet-app-2"
+              "java-app-1"
+              "java-app-2"
+              "node-app-1"
+              "node-app-2"
+              "python-app-1"
+            )
+
           else
-            echo "Old version not found: @$OLD_VERSION"
+
+            echo "Invalid technology stack."
             exit 1
+
           fi
 
-          echo ""
-          echo "========== Testing Replacement =========="
+          # ============================================
+          # Process repositories
+          # ============================================
 
-          UPDATED_CONTENT=$(echo "$CONTENT" | sed "s/@$OLD_VERSION/@$NEW_VERSION/g")
+          for REPO in "${REPOS[@]}"; do
 
-          echo ""
-          echo "Original:"
-          echo "$CONTENT"
+            FULL_REPO="$ORG_NAME/$REPO"
 
-          echo ""
-          echo "Updated:"
-          echo "$UPDATED_CONTENT"
+            echo ""
+            echo "======================================"
+            echo "Processing: $FULL_REPO"
+            echo "======================================"
+
+            # --------------------------------------------
+            # Determine reusable workflow file
+            # --------------------------------------------
+
+            if [ "$TECH_STACK" = "all" ]; then
+
+              case "$REPO" in
+
+                dotnet-*)
+                  WORKFLOW_FILE="dotnet-build.yml"
+                  ;;
+
+                java-*)
+                  WORKFLOW_FILE="java-build.yml"
+                  ;;
+
+                node-*)
+                  WORKFLOW_FILE="node-build.yml"
+                  ;;
+
+                python-*)
+                  WORKFLOW_FILE="python-build.yml"
+                  ;;
+
+                *)
+                  echo "Unknown repository type: $REPO"
+                  continue
+                  ;;
+
+              esac
+
+            fi
+
+            CALLER_FILE=".github/workflows/build.yml"
+
+            echo "Caller workflow : $CALLER_FILE"
+            echo "Reusable workflow: $WORKFLOW_FILE"
+
+            # --------------------------------------------
+            # Check repository access
+            # --------------------------------------------
+
+            if ! gh repo view "$FULL_REPO" > /dev/null 2>&1; then
+
+              echo "ERROR: Cannot access $FULL_REPO"
+              continue
+
+            fi
+
+            echo "Repository access confirmed."
+
+            # --------------------------------------------
+            # Read caller workflow
+            # --------------------------------------------
+
+            FILE_DATA=$(gh api \
+              "/repos/$FULL_REPO/contents/$CALLER_FILE" \
+              2>/dev/null || true)
+
+            if [ -z "$FILE_DATA" ]; then
+
+              echo "Caller workflow not found:"
+              echo "$CALLER_FILE"
+              continue
+
+            fi
+
+            SHA=$(echo "$FILE_DATA" | jq -r '.sha')
+
+            CONTENT=$(echo "$FILE_DATA" \
+              | jq -r '.content' \
+              | tr -d '\n' \
+              | base64 -d)
+
+            echo ""
+            echo "Current workflow:"
+            echo "$CONTENT"
+
+            # --------------------------------------------
+            # Verify correct reusable workflow
+            # --------------------------------------------
+
+            REUSABLE_PATH="$ORG_NAME/reusable-workflows-demo/.github/workflows/$WORKFLOW_FILE"
+
+            if ! echo "$CONTENT" | grep -q "$REUSABLE_PATH"; then
+
+              echo "Expected reusable workflow not found."
+              echo "Expected:"
+              echo "$REUSABLE_PATH"
+
+              continue
+
+            fi
+
+            # --------------------------------------------
+            # Check old version
+            # --------------------------------------------
+
+            if ! echo "$CONTENT" | grep -q "@$OLD_VERSION"; then
+
+              echo "Old version @$OLD_VERSION not found."
+
+              continue
+
+            fi
+
+            echo ""
+            echo "Old version found: @$OLD_VERSION"
+
+            # --------------------------------------------
+            # Replace version
+            # --------------------------------------------
+
+            UPDATED_CONTENT=$(echo "$CONTENT" \
+              | sed "s/@$OLD_VERSION/@$NEW_VERSION/g")
+
+            echo ""
+            echo "Updated workflow:"
+            echo "$UPDATED_CONTENT"
+
+            # --------------------------------------------
+            # Encode content
+            # --------------------------------------------
+
+            ENCODED_CONTENT=$(printf '%s' "$UPDATED_CONTENT" \
+              | base64 -w 0)
+
+            # --------------------------------------------
+            # Update GitHub repository
+            # --------------------------------------------
+
+            echo ""
+            echo "Updating $FULL_REPO..."
+
+            gh api \
+              --method PUT \
+              "/repos/$FULL_REPO/contents/$CALLER_FILE" \
+              -f message="chore: update reusable workflow to $NEW_VERSION" \
+              -f content="$ENCODED_CONTENT" \
+              -f sha="$SHA"
+
+            echo ""
+            echo "SUCCESS:"
+            echo "$FULL_REPO"
+            echo "$CALLER_FILE"
+            echo "@$OLD_VERSION -> @$NEW_VERSION"
+
+          done
+
+      - name: Rollout completed
+        run: |
+          echo "======================================"
+          echo "Rollout completed"
+          echo "======================================"
