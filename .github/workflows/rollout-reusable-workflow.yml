@@ -1,14 +1,40 @@
-name: Test Rollout
+name: Test Reusable Workflow Rollout
 
 on:
   workflow_dispatch:
+    inputs:
+      old_version:
+        description: "Current reusable workflow version"
+        required: true
+        type: string
+        default: "v1.2.0"
+
+      new_version:
+        description: "New reusable workflow version"
+        required: true
+        type: string
+        default: "v1.3.0"
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  test-rollout:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test rollout workflow
+
+      - name: Display inputs
         run: |
-          echo "Rollout workflow is working"
-          echo "This is the central rollout repository"
+          echo "Old version: ${{ inputs.old_version }}"
+          echo "New version: ${{ inputs.new_version }}"
+
+      - name: Check GitHub CLI
+        run: |
+          gh --version
+
+      - name: Check repository access
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          gh repo view my-org/dotnet-test-app
