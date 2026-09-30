@@ -1,0 +1,14 @@
+name: Test Rollout
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test rollout workflow
+        run: |
+          echo "Rollout workflow is working"
+          echo "This is the central rollout repository"
