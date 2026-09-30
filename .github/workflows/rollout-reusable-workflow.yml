@@ -38,3 +38,11 @@ jobs:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
           gh repo view arpitjere/test-app
+          
+      - name: Read caller workflow
+        env:
+         GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+         gh api \
+           "/repos/arpitjere/test-app/contents/.github/workflows/test-caller.yml" \
+           --jq '.content' | base64 -d    
