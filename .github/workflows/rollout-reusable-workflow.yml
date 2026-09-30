@@ -16,7 +16,7 @@ on:
         default: "v1.1.0"
 
       tech_stack:
-        description: "Technology stack"
+        description: "Select technology stack"
         required: true
         type: choice
         options:
@@ -35,6 +35,10 @@ jobs:
 
     steps:
 
+      # ---------------------------------------------
+      # Step 1: Display rollout information
+      # ---------------------------------------------
+
       - name: Display rollout information
         run: |
           echo "======================================"
@@ -45,9 +49,17 @@ jobs:
           echo "New Version : ${{ inputs.new_version }}"
           echo "======================================"
 
+      # ---------------------------------------------
+      # Step 2: Check GitHub CLI
+      # ---------------------------------------------
+
       - name: Check GitHub CLI
         run: |
           gh --version
+
+      # ---------------------------------------------
+      # Step 3: Rollout reusable workflow
+      # ---------------------------------------------
 
       - name: Rollout reusable workflow
         env:
@@ -56,19 +68,19 @@ jobs:
           OLD_VERSION: ${{ inputs.old_version }}
           NEW_VERSION: ${{ inputs.new_version }}
           TECH_STACK: ${{ inputs.tech_stack }}
+
         run: |
 
-          # ============================================
-          # Repository and reusable workflow mapping
-          # ============================================
+          # ==========================================
+          # Select repositories based on tech stack
+          # ==========================================
 
           if [ "$TECH_STACK" = "dotnet" ]; then
 
             WORKFLOW_FILE="dotnet-build.yml"
 
             REPOS=(
-              "dotnet-app-1"
-              "dotnet-app-2"
+              "test-app"
             )
 
           elif [ "$TECH_STACK" = "java" ]; then
@@ -77,7 +89,6 @@ jobs:
 
             REPOS=(
               "java-app-1"
-              "java-app-2"
             )
 
           elif [ "$TECH_STACK" = "node" ]; then
@@ -86,7 +97,6 @@ jobs:
 
             REPOS=(
               "node-app-1"
-              "node-app-2"
             )
 
           elif [ "$TECH_STACK" = "python" ]; then
@@ -99,17 +109,10 @@ jobs:
 
           elif [ "$TECH_STACK" = "all" ]; then
 
-            echo "All technology stacks selected."
-
-            WORKFLOW_FILE="all"
-
             REPOS=(
-              "dotnet-app-1"
-              "dotnet-app-2"
+              "test-app"
               "java-app-1"
-              "java-app-2"
               "node-app-1"
-              "node-app-2"
               "python-app-1"
             )
 
@@ -120,9 +123,10 @@ jobs:
 
           fi
 
-          # ============================================
-          # Process repositories
-          # ============================================
+
+          # ==========================================
+          # Process each repository
+          # ==========================================
 
           for REPO in "${REPOS[@]}"; do
 
@@ -133,32 +137,33 @@ jobs:
             echo "Processing: $FULL_REPO"
             echo "======================================"
 
-            # --------------------------------------------
-            # Determine reusable workflow file
-            # --------------------------------------------
+
+            # ========================================
+            # Determine reusable workflow
+            # ========================================
 
             if [ "$TECH_STACK" = "all" ]; then
 
               case "$REPO" in
 
-                dotnet-*)
+                test-app)
                   WORKFLOW_FILE="dotnet-build.yml"
                   ;;
 
-                java-*)
+                java-app-1)
                   WORKFLOW_FILE="java-build.yml"
                   ;;
 
-                node-*)
+                node-app-1)
                   WORKFLOW_FILE="node-build.yml"
                   ;;
 
-                python-*)
+                python-app-1)
                   WORKFLOW_FILE="python-build.yml"
                   ;;
 
                 *)
-                  echo "Unknown repository type: $REPO"
+                  echo "Unknown repository: $REPO"
                   continue
                   ;;
 
@@ -166,14 +171,13 @@ jobs:
 
             fi
 
+
             CALLER_FILE=".github/workflows/build.yml"
 
-            echo "Caller workflow : $CALLER_FILE"
-            echo "Reusable workflow: $WORKFLOW_FILE"
 
-            # --------------------------------------------
+            # ========================================
             # Check repository access
-            # --------------------------------------------
+            # ========================================
 
             if ! gh repo view "$FULL_REPO" > /dev/null 2>&1; then
 
@@ -184,42 +188,51 @@ jobs:
 
             echo "Repository access confirmed."
 
-            # --------------------------------------------
+
+            # ========================================
             # Read caller workflow
-            # --------------------------------------------
+            # ========================================
 
             FILE_DATA=$(gh api \
               "/repos/$FULL_REPO/contents/$CALLER_FILE" \
               2>/dev/null || true)
 
+
             if [ -z "$FILE_DATA" ]; then
 
               echo "Caller workflow not found:"
               echo "$CALLER_FILE"
+
               continue
 
             fi
 
+
             SHA=$(echo "$FILE_DATA" | jq -r '.sha')
+
 
             CONTENT=$(echo "$FILE_DATA" \
               | jq -r '.content' \
               | tr -d '\n' \
               | base64 -d)
 
+
             echo ""
             echo "Current workflow:"
             echo "$CONTENT"
 
-            # --------------------------------------------
+
+            # ========================================
             # Verify correct reusable workflow
-            # --------------------------------------------
+            # ========================================
 
             REUSABLE_PATH="$ORG_NAME/reusable-workflows-demo/.github/workflows/$WORKFLOW_FILE"
+
 
             if ! echo "$CONTENT" | grep -q "$REUSABLE_PATH"; then
 
               echo "Expected reusable workflow not found."
+
               echo "Expected:"
               echo "$REUSABLE_PATH"
 
@@ -227,9 +240,10 @@ jobs:
 
             fi
 
-            # --------------------------------------------
+
+            # ========================================
             # Check old version
-            # --------------------------------------------
+            # ========================================
 
             if ! echo "$CONTENT" | grep -q "@$OLD_VERSION"; then
 
@@ -239,33 +253,39 @@ jobs:
 
             fi
 
+
             echo ""
             echo "Old version found: @$OLD_VERSION"
 
-            # --------------------------------------------
-            # Replace version
-            # --------------------------------------------
+
+            # ========================================
+            # Replace old version with new version
+            # ========================================
 
             UPDATED_CONTENT=$(echo "$CONTENT" \
               | sed "s/@$OLD_VERSION/@$NEW_VERSION/g")
+
 
             echo ""
             echo "Updated workflow:"
             echo "$UPDATED_CONTENT"
 
-            # --------------------------------------------
-            # Encode content
-            # --------------------------------------------
+
+            # ========================================
+            # Encode updated content
+            # ========================================
 
             ENCODED_CONTENT=$(printf '%s' "$UPDATED_CONTENT" \
               | base64 -w 0)
 
-            # --------------------------------------------
+
+            # ========================================
             # Update GitHub repository
-            # --------------------------------------------
+            # ========================================
 
             echo ""
             echo "Updating $FULL_REPO..."
+
 
             gh api \
               --method PUT \
@@ -273,6 +293,7 @@ jobs:
               -f message="chore: update reusable workflow to $NEW_VERSION" \
               -f content="$ENCODED_CONTENT" \
               -f sha="$SHA"
+
 
             echo ""
             echo "SUCCESS:"
@@ -282,8 +303,13 @@ jobs:
 
           done
 
+
+      # ---------------------------------------------
+      # Step 4: Completion
+      # ---------------------------------------------
+
       - name: Rollout completed
         run: |
           echo "======================================"
-          echo "Rollout completed"
+          echo "Reusable workflow rollout completed"
           echo "======================================"
