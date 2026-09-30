@@ -7,13 +7,13 @@ on:
         description: "Current reusable workflow version"
         required: true
         type: string
-        default: "v1.2.0"
+        default: "v1.0.0"
 
       new_version:
         description: "New reusable workflow version"
         required: true
         type: string
-        default: "v1.3.0"
+        default: "v1.1.0"
 
 permissions:
   contents: read
@@ -24,25 +24,65 @@ jobs:
 
     steps:
 
+      # Step 1 - Display versions
       - name: Display inputs
         run: |
           echo "Old version: ${{ inputs.old_version }}"
           echo "New version: ${{ inputs.new_version }}"
 
+      # Step 2 - Check GitHub CLI
       - name: Check GitHub CLI
         run: |
           gh --version
 
+      # Step 3 - Check access to application repository
       - name: Check repository access
         env:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
         run: |
           gh repo view arpitjere/test-app
-          
-      - name: Read caller workflow
+
+      # Step 4 - Read, check and test version replacement
+      - name: Read and check caller workflow
         env:
-         GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+          REPO: arpitjere/test-app
+          FILE: .github/workflows/test-caller.yml
+          OLD_VERSION: ${{ inputs.old_version }}
+          NEW_VERSION: ${{ inputs.new_version }}
         run: |
-         gh api \
-           "/repos/arpitjere/test-app/contents/.github/workflows/test-caller.yml" \
-           --jq '.content' | base64 -d    
+
+          echo "Reading caller workflow..."
+          echo "Repository: $REPO"
+          echo "File: $FILE"
+
+          CONTENT=$(gh api \
+            "/repos/$REPO/contents/$FILE" \
+            --jq '.content' | base64 -d)
+
+          echo ""
+          echo "========== Original Workflow =========="
+          echo "$CONTENT"
+
+          echo ""
+          echo "========== Checking Version =========="
+
+          if echo "$CONTENT" | grep -q "@$OLD_VERSION"; then
+            echo "Old version found: @$OLD_VERSION"
+          else
+            echo "Old version not found: @$OLD_VERSION"
+            exit 1
+          fi
+
+          echo ""
+          echo "========== Testing Replacement =========="
+
+          UPDATED_CONTENT=$(echo "$CONTENT" | sed "s/@$OLD_VERSION/@$NEW_VERSION/g")
+
+          echo ""
+          echo "Original:"
+          echo "$CONTENT"
+
+          echo ""
+          echo "Updated:"
+          echo "$UPDATED_CONTENT"
